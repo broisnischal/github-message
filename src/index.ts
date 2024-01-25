@@ -1,3 +1,8 @@
+
+import { createHmac, timingSafeEqual } from 'node:crypto';
+import { Buffer } from 'node:buffer';
+import { Resend } from 'resend';
+
 /**
  * Welcome to Cloudflare Workers! This is your first worker.
  *
@@ -8,6 +13,7 @@
  * Learn more at https://developers.cloudflare.com/workers/
  */
 
+const resend = new Resend('re_jYKCWbVe_9E2k4gpqPYXVTbWPxyZQT2hz');
 
 // biome-ignore lint/suspicious/noEmptyInterface: <explanation>
 export  interface Env {
@@ -29,6 +35,54 @@ export  interface Env {
 
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-		return new Response('Hello World!');
+		if(request.method !== 'POST') {
+			return new Response('Please send a POST request!');
+		} 
+		try {
+			const rawBody = await request.text();
+		
+			if (!checkSignature(rawBody, request.headers, "supersecret")) {
+			  return new Response("Wrong password, try again", {status: 403});
+			}
+
+
+			const action = request.headers.get('X-GitHub-Event');
+			const json = JSON.parse(rawBody);
+			const repoName = json.repository.full_name;
+			const senderName = json.sender.login;
+
+			return sendText(`Hello ${senderName} from ${repoName}`, `${senderName} completed ${action} onto your repo ${repoName}`);
+		  } catch (e) {
+			return new Response(`Error:  ${e}`);
+		  }
 	},
 };
+function checkSignature(text, headers, githubSecretToken) {
+  const hmac = createHmac('sha256', githubSecretToken);
+  hmac.update(text);
+  const expectedSignature = hmac.digest('hex');
+  const actualSignature = headers.get('x-hub-signature-256');
+
+  const trusted = Buffer.from(`sha256=${expectedSignature}`, 'ascii');
+  const untrusted =  Buffer.from(actualSignature, 'ascii');
+
+  return trusted.byteLength === untrusted.byteLength
+    && timingSafeEqual(trusted, untrusted);
+};
+
+
+async function sendText(subject,message) {
+	const { data, error } = await resend.emails.send({
+		from: 'onboarding@resend.dev',
+		to: ['codewithnws@gmail.com'],
+		subject: subject,
+		html: message,
+	  });
+	
+	  if (error) {
+		return console.error({ error });
+	  }
+	
+	  console.log({ data });
+	return Response.json(result);
+  };
